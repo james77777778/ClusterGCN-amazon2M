@@ -6,7 +6,7 @@ from torch.nn.parameter import Parameter
 
 class GraphConv(torch.nn.Module):
     """ Applies the Graph Convolution operation to the incoming data: math: `X' = \hat{A}XW`
-    
+
     Args:
         in_features: size of each input sample
         out_features: size of each output sample
@@ -30,52 +30,57 @@ class GraphConv(torch.nn.Module):
         bias: the learnable bias of the module of shape
               :math:`(\text{out\_features})`.
               If :attr:`bias` is ``True``, the values are initialized with the scalar value `0`.
-    
+
     """
-    
+
     __constants__ = ['in_features, out_features']
 
-    def __init__(self, in_features, out_features, dropout=0.2, bias=False, normalize=True, last=False):
+    def __init__(self, in_features, out_features, dropout=0.2, bias=False, normalize=True, last=False, precalc=False):
         super(GraphConv, self).__init__()
-        self.in_features = in_features
+        self.in_features = in_features*2
         self.out_features = out_features
         self.normalize = normalize
         self.p = dropout
         self.last = last
-        self.layer_norm = torch.nn.LayerNorm(normalized_shape=out_features)
-        self.weight = Parameter(torch.Tensor(self.out_features, self.in_features))
+        self.precalc = precalc
+        if not last:
+            self.layer_norm = torch.nn.LayerNorm(normalized_shape=out_features, elementwise_affine=True)
+        else:
+            self.layer_norm = lambda x: x
+        self.weight = Parameter(torch.Tensor(self.out_features, self.in_features), requires_grad=True)
         if bias:
-            self.bias = Parameter(torch.Tensor(self.out_features))
+            self.bias = Parameter(torch.Tensor(self.out_features), requires_grad=True)
         else:
             self.register_parameter('bias', None)
         self.reset_parameters()
-   
+
     def reset_parameters(self):
         # Xavier Glorot Uniform
         bound = math.sqrt(6.0/float(self.out_features + self.in_features))
         self.weight.data.uniform_(-bound, bound)
-        
+
         # Kaiming He Uniform
-        #torch.nn.init.kaiming_uniform_(self.weight, a=0.01, mode='fan_in', nonlinearity='leaky_relu')
-        
+        # torch.nn.init.kaiming_uniform_(self.weight, a=0.01, mode='fan_in', nonlinearity='leaky_relu')
+
         if self.bias is not None:
             torch.nn.init.zeros_(self.bias)
 
-    def forward(self, A, X):
+    def forward(self, A, x):
+        if self.precalc:
+            support = x
+        else:
+            support = torch.sparse.mm(A, x)  # (N, N) x (N, F) -> (N, F)
+            support = torch.cat((support, x), dim=1)
+        support = torch.nn.functional.dropout(support, p=self.p, training=self.training)
+        output = torch.nn.functional.linear(support, self.weight, self.bias)
 
-        input = torch.sparse.mm(A, X) # (N, N) x (N, F) -> (N, F)
-        #output = input.matmul(self.weight.t()) # (N, F) x (H, N).t() -> (N, H)
-        #if self.bias is not None:
-            #output += self.bias
-        output = torch.nn.functional.linear(input, self.weight, self.bias) 
-        
         if self.last:
             return output
-        
+
         if self.normalize:
             output = self.layer_norm(output)
-        output = torch.nn.functional.leaky_relu(output)
-        return torch.nn.functional.dropout(output, p=self.p, training=self.training)
-        
+        return torch.nn.functional.relu(output)
+
     def extra_repr(self):
-        return 'in_features={}, out_features={}, bias={}'.format(self.in_features, self.out_features, self.bias is not None)
+        return 'in_features={}, out_features={}, bias={}'.format(
+            self.in_features, self.out_features, self.bias is not None)

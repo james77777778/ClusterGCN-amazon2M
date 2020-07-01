@@ -1,0 +1,13 @@
+# venv
+venv
+
+# cache
+.vscode
+__pycache__
+tmp
+
+# runs
+runs
+
+# datasets
+datasets
