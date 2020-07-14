@@ -5,6 +5,7 @@ venv
 .vscode
 __pycache__
 tmp
+clustering
 
 # runs
 runs

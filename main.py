@@ -1,7 +1,6 @@
 # Author: Piyush Vyas
 import os
 import time
-import pickle
 import tqdm
 import torch
 import argparse
@@ -9,7 +8,6 @@ import numpy as np
 import utils as utils
 from models import GCN
 from torch.utils.tensorboard import SummaryWriter
-import torch.nn.functional as F
 
 
 # Training settings
